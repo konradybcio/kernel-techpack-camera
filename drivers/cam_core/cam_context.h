@@ -9,8 +9,8 @@
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/kref.h>
-#include "cam_req_mgr_interface.h"
-#include "cam_hw_mgr_intf.h"
+#include "../cam_req_mgr/cam_req_mgr_interface.h"
+#include "../cam_core/cam_hw_mgr_intf.h"
 
 /* Forward declarations */
 struct cam_context;

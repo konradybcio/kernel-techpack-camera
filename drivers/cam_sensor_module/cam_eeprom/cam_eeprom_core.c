@@ -40,7 +40,6 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	}
 
 	eb_info = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
-
 	for (j = 0; j < block->num_map; j++) {
 		CAM_DBG(CAM_EEPROM, "slave-addr = 0x%X", emap[j].saddr);
 		if (emap[j].saddr) {

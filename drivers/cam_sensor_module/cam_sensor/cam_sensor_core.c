@@ -12,6 +12,40 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+#define THERMAL_MULT 1000
+
+void cam_sensor_fill_thermal_zone(struct cam_sensor_ctrl_t *s_ctrl)
+{
+	int rc = 0;
+	uint32_t sensor_temperature = 0;
+	uint32_t temperature_addr = 0x013A; // TEMP_SEN_OUT Address
+	struct cam_camera_slave_info *slave_info;
+
+	slave_info = &(s_ctrl->sensordata->slave_info);
+
+	if (!slave_info) {
+		CAM_ERR(CAM_SENSOR, " failed: %pK",
+			 slave_info);
+		return;
+	}
+
+	rc = camera_io_dev_read(
+		&(s_ctrl->io_master_info),
+		temperature_addr,
+		&sensor_temperature,
+		CAMERA_SENSOR_I2C_TYPE_WORD,  // addr_type
+		CAMERA_SENSOR_I2C_TYPE_BYTE); // data_type
+
+	CAM_DBG(CAM_SENSOR, "rc %d read a: 0x%x v: %d for sensor id 0x%x:",
+		rc, temperature_addr, sensor_temperature, slave_info->sensor_id);
+
+	if(rc == 0) {
+		s_ctrl->thermal_info.thermal = sensor_temperature * THERMAL_MULT;
+		s_ctrl->thermal_info.status = true;
+	} else {
+		s_ctrl->thermal_info.status = rc;
+	}
+}
 
 static void cam_sensor_update_req_mgr(
 	struct cam_sensor_ctrl_t *s_ctrl,
@@ -216,6 +250,10 @@ static int32_t cam_sensor_i2c_pkt_parse(struct cam_sensor_ctrl_t *s_ctrl,
 			CAM_WARN(CAM_SENSOR,
 				"Rxed Update packets without linking");
 			goto end;
+		}
+
+		if(s_ctrl->sensordata->slave_info.sensor_id == 0x486) {
+			cam_sensor_fill_thermal_zone(s_ctrl);
 		}
 
 		i2c_reg_settings =
@@ -710,6 +748,9 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	return rc;
 }
 
+
+
+
 int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	void *arg)
 {
@@ -1055,6 +1096,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				goto release_mutex;
 			}
 			s_ctrl->sensor_state = CAM_SENSOR_CONFIG;
+
 		}
 
 		if (s_ctrl->i2c_data.read_settings.is_settings_valid) {
@@ -1213,6 +1255,7 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 	if (rc < 0)
 		CAM_ERR(CAM_SENSOR, "cci_init failed: rc: %d", rc);
 
+	s_ctrl->thermal_info.status = -EINVAL;
 	return rc;
 }
 
@@ -1250,6 +1293,7 @@ int cam_sensor_power_down(struct cam_sensor_ctrl_t *s_ctrl)
 		}
 	}
 
+	s_ctrl->thermal_info.status = -ENODEV;
 	camera_io_release(&(s_ctrl->io_master_info));
 
 	return rc;

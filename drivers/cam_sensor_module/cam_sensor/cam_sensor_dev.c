@@ -293,12 +293,47 @@ static const struct of_device_id cam_sensor_driver_dt_match[] = {
 	{}
 };
 
+static int get_camera_thermal(struct thermal_zone_device *thermal, int *temp)
+{
+	int rc = 0;
+	struct cam_sensor_ctrl_t *s_ctrl = NULL;
+
+	if (!temp) {
+		pr_err("%s failed %d\n", __func__, __LINE__);
+		rc = -EPERM;
+		goto error;
+	}
+	if(thermal->devdata == NULL) {
+		pr_err("%s failed %d\n", __func__, __LINE__);
+		rc = -EPERM;
+		goto error;
+	}
+
+	s_ctrl = thermal->devdata;
+	if(s_ctrl->thermal_info.status == true) {
+		*temp = s_ctrl->thermal_info.thermal;
+	} else {
+		rc = s_ctrl->thermal_info.status;
+	}
+
+error:
+	return rc;
+}
+
+static struct thermal_zone_device_ops camera_thermal_ops = {
+	.get_temp = get_camera_thermal,
+};
+
 static int32_t cam_sensor_driver_platform_probe(
 	struct platform_device *pdev)
 {
 	int32_t rc = 0, i = 0;
 	struct cam_sensor_ctrl_t *s_ctrl = NULL;
 	struct cam_hw_soc_info *soc_info = NULL;
+	char *thermal_name[MAX_CAMERAS] = {SONY_CAMERA_THERMAL_NAME_0,
+		NULL,
+		NULL,
+		NULL};
 
 	/* Create sensor control structure */
 	s_ctrl = devm_kzalloc(&pdev->dev,
@@ -362,6 +397,26 @@ static int32_t cam_sensor_driver_platform_probe(
 	s_ctrl->sensordata->power_info.dev = &pdev->dev;
 	platform_set_drvdata(pdev, s_ctrl);
 	s_ctrl->sensor_state = CAM_SENSOR_INIT;
+
+	if(soc_info->index == 0) {
+		if (s_ctrl && thermal_name[0]) {
+			s_ctrl->thermal_zone_dev =
+				thermal_zone_device_register(thermal_name[0],
+				0, 0,
+				s_ctrl, // void* devdata
+				&camera_thermal_ops,
+				0, 0, 0);
+			if (IS_ERR(s_ctrl->thermal_zone_dev)) {
+				pr_err("%s thermal_zone_device_register thermal_name[0] %s %d\n", __func__, thermal_name[0] , __LINE__);
+				rc = PTR_ERR(s_ctrl->thermal_zone_dev);
+			}
+			else {
+				s_ctrl->thermal_info.status = -ENODEV;
+				s_ctrl->thermal_info.thermal = 0;
+			}
+		}
+	}
+
 
 	return rc;
 unreg_subdev:
