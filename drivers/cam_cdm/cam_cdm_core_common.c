@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -119,10 +119,28 @@ struct cam_cdm_bl_cb_request_entry *cam_cdm_find_request_by_bl_tag(
 {
 	struct cam_cdm_bl_cb_request_entry *node;
 
+/* sony extension begin */
+#if 1
+	struct cam_cdm_bl_cb_request_entry *node_next;
+
+	list_for_each_entry_safe(node, node_next, bl_list, entry) {
+		if (node->bl_tag == tag) {
+			return node;
+		} else {
+			CAM_ERR(CAM_CDM, "No IRQ took place for bl_tag=%x cookie=%d."
+				" Remove corresponding request from bl_list.",
+				node->bl_tag, node->cookie);
+			list_del_init(&node->entry);
+			kfree(node);
+		}
+	}
+#else
 	list_for_each_entry(node, bl_list, entry) {
 		if (node->bl_tag == tag)
 			return node;
 	}
+#endif
+/* sony extension end */
 	CAM_ERR(CAM_CDM, "Could not find the bl request for tag=%x", tag);
 
 	return NULL;
@@ -180,12 +198,10 @@ void cam_cdm_notify_clients(struct cam_hw_info *cdm_hw,
 			(struct cam_cdm_bl_cb_request_entry *)data;
 
 		client_idx = CAM_CDM_GET_CLIENT_IDX(node->client_hdl);
-		mutex_lock(&cdm_hw->hw_mutex);
 		client = core->clients[client_idx];
 		if ((!client) || (client->handle != node->client_hdl)) {
 			CAM_ERR(CAM_CDM, "Invalid client %pK hdl=%x", client,
 				node->client_hdl);
-			mutex_unlock(&cdm_hw->hw_mutex);
 			return;
 		}
 		cam_cdm_get_client_refcount(client);
@@ -204,7 +220,6 @@ void cam_cdm_notify_clients(struct cam_hw_info *cdm_hw,
 		}
 		mutex_unlock(&client->lock);
 		cam_cdm_put_client_refcount(client);
-		mutex_unlock(&cdm_hw->hw_mutex);
 		return;
 	} else if (status == CAM_CDM_CB_STATUS_HW_RESET_DONE ||
 			status == CAM_CDM_CB_STATUS_HW_FLUSH ||
@@ -220,7 +235,7 @@ void cam_cdm_notify_clients(struct cam_hw_info *cdm_hw,
 		if ((!client) || (client->handle != node->client_hdl)) {
 			CAM_ERR(CAM_CDM, "Invalid client %pK hdl=%x", client,
 				node->client_hdl);
-			return;
+				return;
 		}
 		cam_cdm_get_client_refcount(client);
 		mutex_lock(&client->lock);
@@ -242,7 +257,6 @@ void cam_cdm_notify_clients(struct cam_hw_info *cdm_hw,
 
 	for (i = 0; i < CAM_PER_CDM_MAX_REGISTERED_CLIENTS; i++) {
 		if (core->clients[i] != NULL) {
-			mutex_lock(&cdm_hw->hw_mutex);
 			client = core->clients[i];
 			cam_cdm_get_client_refcount(client);
 			mutex_lock(&client->lock);
@@ -265,7 +279,6 @@ void cam_cdm_notify_clients(struct cam_hw_info *cdm_hw,
 			}
 			mutex_unlock(&client->lock);
 			cam_cdm_put_client_refcount(client);
-			mutex_unlock(&cdm_hw->hw_mutex);
 		}
 	}
 }
@@ -325,34 +338,35 @@ int cam_cdm_stream_ops_internal(void *hw_priv,
 		return -EINVAL;
 
 	core = (struct cam_cdm *)cdm_hw->core_info;
-	mutex_lock(&cdm_hw->hw_mutex);
 	client_idx = CAM_CDM_GET_CLIENT_IDX(*handle);
 	client = core->clients[client_idx];
 	if (!client) {
 		CAM_ERR(CAM_CDM, "Invalid client %pK hdl=%x", client, *handle);
-		mutex_unlock(&cdm_hw->hw_mutex);
 		return -EINVAL;
 	}
 	cam_cdm_get_client_refcount(client);
 	if (*handle != client->handle) {
 		CAM_ERR(CAM_CDM, "client id given handle=%x invalid", *handle);
-		rc = -EINVAL;
-		goto end;
+		cam_cdm_put_client_refcount(client);
+		return -EINVAL;
 	}
 	if (operation == true) {
 		if (true == client->stream_on) {
 			CAM_ERR(CAM_CDM,
 				"Invalid CDM client is already streamed ON");
-			goto end;
+			cam_cdm_put_client_refcount(client);
+			return rc;
 		}
 	} else {
 		if (client->stream_on == false) {
 			CAM_ERR(CAM_CDM,
 				"Invalid CDM client is already streamed Off");
-			goto end;
+			cam_cdm_put_client_refcount(client);
+			return rc;
 		}
 	}
 
+	mutex_lock(&cdm_hw->hw_mutex);
 	if (operation == true) {
 		if (!cdm_hw->open_count) {
 			struct cam_ahb_vote ahb_vote;
