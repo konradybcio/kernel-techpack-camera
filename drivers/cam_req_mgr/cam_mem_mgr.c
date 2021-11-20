@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -166,15 +166,20 @@ int cam_mem_mgr_init(void)
 
 	memset(tbl.bufq, 0, sizeof(tbl.bufq));
 
-	if (cam_smmu_need_force_alloc_cached(&tbl.force_cache_allocs)) {
-		CAM_ERR(CAM_MEM, "Error in getting force cache alloc flag");
-		return -EINVAL;
-	}
-
 	bitmap_size = BITS_TO_LONGS(CAM_MEM_BUFQ_MAX) * sizeof(long);
+/* sony extension begin */
+#if 1
+	if (!tbl.bitmap) {
+		tbl.bitmap = kzalloc(bitmap_size, GFP_KERNEL);
+		if (!tbl.bitmap)
+			return -ENOMEM;
+		}
+#else
 	tbl.bitmap = kzalloc(bitmap_size, GFP_KERNEL);
 	if (!tbl.bitmap)
 		return -ENOMEM;
+#endif
+/* sony extension end */
 
 	tbl.bits = bitmap_size * BITS_PER_BYTE;
 	bitmap_zero(tbl.bitmap, tbl.bits);
@@ -420,9 +425,6 @@ static int cam_mem_util_get_dma_buf(size_t len,
 		return -EINVAL;
 	}
 
-	if (tbl.force_cache_allocs && (!(flags & ION_FLAG_SECURE)))
-		flags |= ION_FLAG_CACHED;
-
 	*buf = ion_alloc(len, heap_id_mask, flags);
 	if (IS_ERR_OR_NULL(*buf))
 		return -ENOMEM;
@@ -449,9 +451,6 @@ static int cam_mem_util_get_dma_buf_fd(size_t len,
 
 	if (tbl.alloc_profile_enable)
 		CAM_GET_TIMESTAMP(ts1);
-
-	if (tbl.force_cache_allocs && (!(flags & ION_FLAG_SECURE)))
-		flags |= ION_FLAG_CACHED;
 
 	*buf = ion_alloc(len, heap_id_mask, flags);
 	if (IS_ERR_OR_NULL(*buf))
@@ -1046,8 +1045,17 @@ void cam_mem_mgr_deinit(void)
 	debugfs_remove_recursive(tbl.dentry);
 	mutex_lock(&tbl.m_lock);
 	bitmap_zero(tbl.bitmap, tbl.bits);
+/* sony extension begin */
+#if 1
+	if (tbl.bitmap) {
+		kfree(tbl.bitmap);
+		tbl.bitmap = NULL;
+	}
+#else
 	kfree(tbl.bitmap);
 	tbl.bitmap = NULL;
+#endif
+/* sony extension end */
 	tbl.dbg_buf_idx = -1;
 	mutex_unlock(&tbl.m_lock);
 	mutex_destroy(&tbl.m_lock);

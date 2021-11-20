@@ -28,6 +28,11 @@
 
 /* max requests per ctx for isp */
 #define CAM_ISP_CTX_REQ_MAX                     8
+/*
+ * Maximum configuration entry size  - This is based on the
+ * worst case DUAL IFE use case plus some margin.
+ */
+#define CAM_ISP_CTX_CFG_MAX                     25
 
 /*
  * Maximum entries in state monitoring array for error logging
@@ -272,7 +277,7 @@ struct cam_isp_context_event_record {
  *                             decide whether to apply request in offline ctx
  * @workq:                     Worker thread for offline ife
  * @trigger_id:                ID provided by CRM for each ctx on the link
- * @last_bufdone_err_apply_req_id:  last bufdone error apply request id
+ * @last_bufdone_error_apply_req_id:  last bufdone error apply request id
  *
  */
 struct cam_isp_context {
@@ -290,6 +295,9 @@ struct cam_isp_context {
 
 	void                            *hw_ctx;
 	uint64_t                         sof_timestamp_val;
+/* sony extension begin */
+	bool                                  hw_config_applied;
+/* sony extension end */
 	uint64_t                         boot_timestamp;
 	int32_t                          active_req_cnt;
 	int64_t                          reported_req_id;
@@ -319,7 +327,7 @@ struct cam_isp_context {
 	atomic_t                              rxd_epoch;
 	struct cam_req_mgr_core_workq        *workq;
 	int32_t                               trigger_id;
-	int64_t                               last_bufdone_err_apply_req_id;
+	int64_t                               last_bufdone_error_apply_req_id;
 };
 
 /**
