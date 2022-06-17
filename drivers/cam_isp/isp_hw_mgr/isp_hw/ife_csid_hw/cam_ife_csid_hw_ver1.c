@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/iopoll.h>
@@ -1620,9 +1619,6 @@ bool cam_ife_csid_ver1_is_width_valid(
 		width = reserve->in_port->right_stop -
 			reserve->in_port->right_start + 1;
 
-	if (reserve->in_port->horizontal_bin || reserve->in_port->qcfa_bin)
-		width /= 2;
-
 	if (!cam_ife_csid_ver1_is_width_valid_by_fuse(csid_hw, width)) {
 		CAM_ERR(CAM_ISP, "CSID[%u] width limited by fuse",
 			csid_hw->hw_intf->hw_idx);
@@ -2155,6 +2151,7 @@ static int cam_ife_csid_ver1_init_config_rdi_path(
 	uint32_t  val;
 	struct cam_ife_csid_ver1_path_cfg *path_cfg;
 	struct cam_ife_csid_cid_data *cid_data;
+	bool is_rpp = false;
 	void __iomem *mem_base;
 	struct cam_ife_csid_path_format path_format = {0};
 
@@ -2173,8 +2170,9 @@ static int cam_ife_csid_ver1_init_config_rdi_path(
 	path_cfg = (struct cam_ife_csid_ver1_path_cfg *)res->res_priv;
 	cid_data = &csid_hw->cid_data[path_cfg->cid];
 	mem_base = soc_info->reg_map[0].mem_base;
+	is_rpp = path_cfg->crop_enable || path_cfg->drop_enable;
 	rc = cam_ife_csid_get_format_rdi(path_cfg->in_format,
-		path_cfg->out_format, &path_format, path_reg->mipi_pack_supported, false);
+		path_cfg->out_format, &path_format, is_rpp, false);
 	if (rc)
 		return rc;
 
@@ -2308,6 +2306,7 @@ static int cam_ife_csid_ver1_init_config_udi_path(
 	uint32_t  val;
 	struct cam_ife_csid_ver1_path_cfg *path_cfg;
 	struct cam_ife_csid_cid_data *cid_data;
+	bool is_rpp = false;
 	void __iomem *mem_base;
 	struct cam_ife_csid_path_format path_format = {0};
 	uint32_t id;
@@ -2329,8 +2328,9 @@ static int cam_ife_csid_ver1_init_config_udi_path(
 	path_cfg = (struct cam_ife_csid_ver1_path_cfg *)res->res_priv;
 	cid_data = &csid_hw->cid_data[path_cfg->cid];
 	mem_base = soc_info->reg_map[0].mem_base;
+	is_rpp = path_cfg->crop_enable || path_cfg->drop_enable;
 	rc = cam_ife_csid_get_format_rdi(path_cfg->in_format,
-		path_cfg->out_format, &path_format, path_reg->mipi_pack_supported, false);
+		path_cfg->out_format, &path_format, is_rpp, false);
 	if (rc)
 		return rc;
 
@@ -3204,9 +3204,6 @@ int cam_ife_csid_ver1_stop(void *hw_priv,
 		csid_hw->hw_intf->hw_idx,
 		csid_stop->num_res);
 	cam_ife_csid_ver1_tpg_stop(csid_hw);
-
-	csid_hw->flags.device_enabled = false;
-
 	/* Stop the resource first */
 	for (i = 0; i < csid_stop->num_res; i++) {
 
@@ -3804,8 +3801,8 @@ static int cam_ife_csid_ver1_handle_rx_debug_event(
 		CAM_INFO_RATE_LIMIT(CAM_ISP,
 			"Csid :%d Long pkt VC: %d DT: %d WC: %d",
 			csid_hw->hw_intf->hw_idx,
-			(val & csi2_reg->vc_mask) >> 22,
-			(val & csi2_reg->dt_mask) >> 16,
+			val & csi2_reg->vc_mask,
+			val & csi2_reg->dt_mask,
 			val & csi2_reg->wc_mask);
 
 		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
@@ -3828,16 +3825,16 @@ static int cam_ife_csid_ver1_handle_rx_debug_event(
 		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
 			csi2_reg->captured_short_pkt_0_addr);
 		CAM_INFO_RATE_LIMIT(CAM_ISP,
-			"Csid :%d Short pkt VC: %d DT: %d LC: %d",
+			"Csid :%d Long pkt VC: %d DT: %d LC: %d",
 			csid_hw->hw_intf->hw_idx,
-			(val & csi2_reg->vc_mask) >> 22,
-			(val & csi2_reg->dt_mask) >> 16,
+			val & csi2_reg->vc_mask,
+			val & csi2_reg->dt_mask,
 			val & csi2_reg->wc_mask);
 
 		val = cam_io_r_mb(soc_info->reg_map[0].mem_base +
 			csi2_reg->captured_short_pkt_1_addr);
 		CAM_INFO_RATE_LIMIT(CAM_ISP,
-			"Csid :%d Short pkt ECC: %d",
+			"Csid :%d Long pkt ECC: %d",
 			csid_hw->hw_intf->hw_idx, val);
 		break;
 	case IFE_CSID_VER1_RX_CPHY_PKT_HDR_CAPTURED:
@@ -3847,8 +3844,8 @@ static int cam_ife_csid_ver1_handle_rx_debug_event(
 		CAM_INFO_RATE_LIMIT(CAM_ISP,
 			"Csid :%d CPHY pkt VC: %d DT: %d LC: %d",
 			csid_hw->hw_intf->hw_idx,
-			(val & csi2_reg->vc_mask) >> 22,
-			(val & csi2_reg->dt_mask) >> 16,
+			val & csi2_reg->vc_mask,
+			val & csi2_reg->dt_mask,
 			val & csi2_reg->wc_mask);
 		break;
 	case IFE_CSID_VER1_RX_UNMAPPED_VC_DT:
@@ -4160,14 +4157,6 @@ static int cam_ife_csid_ver1_bottom_half_handler(
 
 	csid_hw = (struct cam_ife_csid_ver1_hw *)handler_priv;
 	evt_payload = (struct cam_ife_csid_ver1_evt_payload *)evt_payload_priv;
-
-	if (!csid_hw->flags.device_enabled) {
-		CAM_DBG(CAM_ISP, "CSID[%d] bottom-half after csid stop",
-			csid_hw->hw_intf->hw_idx);
-		cam_ife_csid_ver1_put_evt_payload(csid_hw, &evt_payload,
-			&csid_hw->free_payload_list);
-		return 0;
-	}
 
 	if (evt_payload->irq_status[CAM_IFE_CSID_IRQ_REG_RX])
 		cam_ife_csid_ver1_rx_bottom_half_handler(

@@ -141,7 +141,6 @@ struct cam_sfe_bus_wr_wm_resource_data {
 	bool                 init_cfg_done;
 	bool                 hfr_cfg_done;
 	bool                 use_wm_pack;
-	bool                 en_line_done;
 };
 
 struct cam_sfe_bus_wr_comp_grp_data {
@@ -864,7 +863,8 @@ static int cam_sfe_bus_start_wm(struct cam_isp_resource_node *wm_res)
 		common_data->mem_base + rsrc_data->hw_regs->packer_cfg);
 
 	/* configure line_done_cfg for RDI0-2 */
-	if (rsrc_data->en_line_done) {
+	if ((rsrc_data->index >= 8) &&
+		(rsrc_data->index <= 10)) {
 		CAM_DBG(CAM_SFE, "configure line_done_cfg 0x%x for WM: %d",
 			rsrc_data->common_data->line_done_cfg,
 			rsrc_data->index);
@@ -944,8 +944,7 @@ static int cam_sfe_bus_init_wm_resource(uint32_t index,
 	struct cam_sfe_bus_wr_priv      *bus_priv,
 	struct cam_sfe_bus_wr_hw_info   *hw_info,
 	struct cam_isp_resource_node    *wm_res,
-	uint8_t                         *wm_name,
-	bool                             en_line_done)
+	uint8_t                         *wm_name)
 {
 	struct cam_sfe_bus_wr_wm_resource_data *rsrc_data;
 
@@ -958,7 +957,6 @@ static int cam_sfe_bus_init_wm_resource(uint32_t index,
 	wm_res->res_priv = rsrc_data;
 
 	rsrc_data->index = index;
-	rsrc_data->en_line_done = en_line_done;
 	rsrc_data->hw_regs = &hw_info->bus_client_reg[index];
 	rsrc_data->common_data = &bus_priv->common_data;
 
@@ -1945,8 +1943,7 @@ static int cam_sfe_bus_init_sfe_out_resource(
 			hw_info->sfe_out_hw_info[index].wm_idx,
 			bus_priv, hw_info,
 			&rsrc_data->wm_res[i],
-			hw_info->sfe_out_hw_info[index].name,
-			hw_info->sfe_out_hw_info[index].en_line_done);
+			hw_info->sfe_out_hw_info[index].name);
 	if (rc < 0) {
 		CAM_ERR(CAM_SFE, "SFE:%d init WM:%d failed rc:%d",
 			bus_priv->common_data.core_index, i, rc);
@@ -2043,109 +2040,6 @@ static int cam_sfe_bus_wr_print_dimensions(
 		}
 
 		__cam_sfe_bus_wr_print_wm_info(wm_data);
-	}
-	return 0;
-}
-
-static void *cam_sfe_bus_wr_user_dump_info(
-	void *dump_struct, uint8_t *addr_ptr)
-{
-	struct cam_sfe_bus_wr_wm_resource_data  *wm = NULL;
-	uint32_t                                  *addr;
-	uint32_t                                   addr_status0;
-	uint32_t                                   addr_status1;
-	uint32_t                                   addr_status2;
-	uint32_t                                   addr_status3;
-
-	wm = (struct cam_sfe_bus_wr_wm_resource_data *)dump_struct;
-
-	addr_status0 = cam_io_r_mb(wm->common_data->mem_base +
-		wm->hw_regs->addr_status_0);
-	addr_status1 = cam_io_r_mb(wm->common_data->mem_base +
-		wm->hw_regs->addr_status_1);
-	addr_status2 = cam_io_r_mb(wm->common_data->mem_base +
-		wm->hw_regs->addr_status_2);
-	addr_status3 = cam_io_r_mb(wm->common_data->mem_base +
-		wm->hw_regs->addr_status_3);
-
-	addr = (uint32_t *)addr_ptr;
-
-	*addr++ = wm->common_data->hw_intf->hw_idx;
-	*addr++ = wm->index;
-	*addr++ = addr_status0;
-	*addr++ = addr_status1;
-	*addr++ = addr_status2;
-	*addr++ = addr_status3;
-
-	return addr;
-}
-
-static int cam_sfe_bus_wr_user_dump(
-	struct cam_sfe_bus_wr_priv *bus_priv,
-	void *cmd_args)
-{
-	struct cam_isp_resource_node              *rsrc_node = NULL;
-	struct cam_sfe_bus_wr_out_data            *rsrc_data = NULL;
-	struct cam_sfe_bus_wr_wm_resource_data    *wm = NULL;
-	struct cam_hw_info                        *hw_info = NULL;
-	struct cam_isp_hw_dump_args               *dump_args;
-	uint32_t                                   i, j = 0;
-	int                                        rc = 0;
-
-
-	if (!bus_priv || !cmd_args) {
-		CAM_ERR(CAM_ISP, "Invalid bus private data");
-		return -EINVAL;
-	}
-
-	hw_info = (struct cam_hw_info *)bus_priv->common_data.hw_intf->hw_priv;
-	dump_args = (struct cam_isp_hw_dump_args *)cmd_args;
-
-	if (hw_info->hw_state == CAM_HW_STATE_POWER_DOWN) {
-		CAM_WARN(CAM_ISP,
-			"SFE BUS powered down, continuing");
-		return -EINVAL;
-	}
-
-	rc = cam_common_user_dump_helper(dump_args, cam_common_user_dump_clock,
-		hw_info, sizeof(uint64_t), "CLK_RATE_PRINT:");
-
-	if (rc) {
-		CAM_ERR(CAM_ISP, "SFE BUS WR: Clock dump failed, rc:%d", rc);
-		return rc;
-	}
-
-	for (i = 0; i < bus_priv->num_out; i++) {
-		rsrc_node = &bus_priv->sfe_out[i];
-		if (!rsrc_node)
-			continue;
-
-		if (rsrc_node->res_state < CAM_ISP_RESOURCE_STATE_RESERVED) {
-			CAM_DBG(CAM_ISP,
-				"SFE BUS WR: path inactive res ID: %d, continuing",
-				rsrc_node->res_id);
-			continue;
-		}
-
-		rsrc_data = rsrc_node->res_priv;
-		if (!rsrc_data)
-			continue;
-		for (j = 0; j < rsrc_data->num_wm; j++) {
-
-			wm = rsrc_data->wm_res[j].res_priv;
-			if (!wm)
-				continue;
-
-			rc = cam_common_user_dump_helper(dump_args, cam_sfe_bus_wr_user_dump_info,
-				wm, sizeof(uint32_t), "SFE_BUS_CLIENT.%s.%d:",
-				rsrc_data->wm_res[j].res_name,
-				rsrc_data->common_data->core_index);
-
-			if (rc) {
-				CAM_ERR(CAM_ISP, "SFE BUS WR: Info dump failed, rc:%d", rc);
-				return rc;
-			}
-		}
 	}
 	return 0;
 }
@@ -3252,12 +3146,6 @@ static int cam_sfe_bus_wr_process_cmd(
 			sfe_out_res_id, bus_priv);
 		break;
 		}
-	case CAM_ISP_HW_USER_DUMP: {
-		bus_priv = (struct cam_sfe_bus_wr_priv  *) priv;
-
-		rc = cam_sfe_bus_wr_user_dump(bus_priv, cmd_args);
-		break;
-	}
 	case CAM_ISP_HW_CMD_WM_CONFIG_UPDATE:
 		rc = cam_sfe_bus_wr_update_wm_config(cmd_args);
 		break;
