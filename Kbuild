@@ -68,6 +68,9 @@ LINUXINCLUDE +=                                 \
 # Optional include directories
 ccflags-$(CONFIG_MSM_GLOBAL_SYNX) += -I$(KERNEL_ROOT)/drivers/media/platform/msm/synx
 
+# After creating lists, add content of 'ccflags-m' variable to 'ccflags-y' one.
+ccflags-y += ${ccflags-m}
+
 camera-y := \
 	drivers/cam_req_mgr/cam_req_mgr_core.o \
 	drivers/cam_req_mgr/cam_req_mgr_dev.o \
@@ -286,5 +289,5 @@ camera-$(CONFIG_SPECTRA_TFE) += \
 
 camera-y += drivers/camera_main.o
 
-obj-y += camera.o
+obj-m += camera.o
 BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/camera.ko
